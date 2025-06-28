@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ISS Tracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Orbitron', sans-serif;
+    }
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+    }
+    body {
+      background: #000;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 20px;
+      position: relative;
+    }
+
+    #universe {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: url('https://www.transparenttextures.com/patterns/stardust.png') repeat;
+      animation: moveStars 300s linear infinite;
+      z-index: -1;
+      opacity: 0.3;
+    }
+
+    @keyframes moveStars {
+      from { background-position: 0 0; }
+      to { background-position: 10000px 10000px; }
+    }
+
+    h1 {
+      margin-bottom: 20px;
+      font-size: 2.5rem;
+      color: black;
+      background: transparent;
+      padding: 10px 20px;
+      border-radius: 12px;
+      text-shadow: 0 0 5px #00ffe7, 0 0 10px #00ffe7, 0 0 15px #00ffe7, 0 0 20px #00ffe7;
+    }
+
+    #issMap {
+      height: 50vh;
+      width: 100%;
+      max-width: 1000px;
+      border-radius: 15px;
+      box-shadow: 0 0 20px rgba(0, 255, 231, 0.4);
+    }
+    .info {
+      margin-top: 20px;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 20px;
+      border-radius: 10px;
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .info div {
+      padding: 10px 20px;
+      background: #111;
+      border: 2px solid #00ffe7;
+      border-radius: 10px;
+      text-align: center;
+      min-width: 150px;
+    }
+
+    .info div span {
+      display: block;
+      font-size: 1.2rem;
+      margin-top: 5px;
+      color: #fff;
+    }
+
+    .controls {
+      margin-top: 15px;
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .controls button {
+      background-color: #00ffe7;
+      border: 2px solid #00ffe7;
+      padding: 10px 20px;
+      font-size: 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      color: #000;
+      font-weight: bold;
+      transition: 0.3s;
+    }
+
+    .controls button.inactive {
+      background-color: black;
+      color: #00ffe7;
+    }
+
+    .extra-info {
+      margin-top: 15px;
+      font-size: 0.9rem;
+      text-align: center;
+      color: #aaa;
+    }
+
+
+    .wave-effect.left {
+      left: 0;
+      animation-delay: 0s;
+    }
+
+    .wave-effect.right {
+      right: 0;
+      animation-delay: 1.5s;
+    }
+
+    @keyframes waveHit {
+      0% {
+        transform: translateY(-50%) scale(1);
+        opacity: 0.3;
+        filter: hue-rotate(0deg);
+      }
+      50% {
+        transform: translateY(-50%) scale(1.2);
+        opacity: 0.8;
+        filter: hue-rotate(180deg);
+      }
+      100% {
+        transform: translateY(-50%) scale(1);
+        opacity: 0.3;
+        filter: hue-rotate(360deg);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="universe"></div>
+  <h1>Real-Time ISS Tracker</h1>
+  <div class="wave-effect left"></div>
+  <div class="wave-effect right"></div>
+
+  <div id="issMap"></div>
+
+  <div class="info">
+    <div>Latitude<span id="lat">Loading...</span></div>
+    <div>Longitude<span id="lon">Loading...</span></div>
+    <div>Velocity<span id="speed">Loading...</span></div>
+    <div>Altitude<span id="altitude">Loading...</span></div>
+    <div>Visibility<span id="visibility">Loading...</span></div>
+  </div>
+
+  <div class="controls">
+    <button id="speedToggle" onclick="toggleSpeedUnit()">Switch Velocity Unit</button>
+    <button onclick="centerMap()">📍 Center on ISS</button>
+    <button id="trailToggle" onclick="toggleTrail()">🛰️ Toggle Trail</button>
+  </div>
+
+  <div class="extra-info">
+    ISS data updates every 2 seconds. Data sourced from whereiss.at API.<br />
+    Shows ISS location, velocity, altitude, visibility, and movement path.
+  </div>
+
+  <audio id="space-audio" autoplay loop>
+    <source src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_b4421d616c.mp3?filename=space-atmosphere-109316.mp3" type="audio/mpeg">
+  </audio>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('issMap').setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const issIcon = L.icon({
+      iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/International_Space_Station.svg',
+      iconSize: [50, 50],
+      iconAnchor: [25, 25]
+    });
+
+    let issMarker = L.marker([0, 0], { icon: issIcon }).addTo(map);
+    let firstLoad = true;
+    let speedUnit = 'km/h';
+    let currentSpeed = 0;
+    let trailEnabled = true;
+    let trailCoordinates = [];
+    let trailPolyline = L.polyline([], { color: '#00ffe7', weight: 2 }).addTo(map);
+
+    async function fetchISSData() {
+      const res = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
+      const data = await res.json();
+
+      const { latitude, longitude, velocity, altitude, visibility } = data;
+      currentSpeed = velocity;
+      updateSpeedDisplay();
+
+      const latlng = [latitude, longitude];
+      issMarker.setLatLng(latlng);
+
+      if (firstLoad) {
+        map.setView(latlng, 3);
+        firstLoad = false;
+      }
+
+      if (trailEnabled) {
+        trailCoordinates.push(latlng);
+        trailPolyline.setLatLngs(trailCoordinates);
+      }
+
+      document.getElementById('lat').textContent = latitude.toFixed(4);
+      document.getElementById('lon').textContent = longitude.toFixed(4);
+      document.getElementById('altitude').textContent = altitude.toFixed(2) + ' km';
+      document.getElementById('visibility').textContent = visibility;
+    }
+
+    function updateSpeedDisplay() {
+      const speedElement = document.getElementById('speed');
+      if (speedUnit === 'km/h') {
+        speedElement.textContent = currentSpeed.toFixed(2) + ' km/h';
+      } else {
+        speedElement.textContent = (currentSpeed / 3600).toFixed(4) + ' km/s';
+      }
+    }
+
+    function toggleSpeedUnit() {
+      speedUnit = (speedUnit === 'km/h') ? 'km/s' : 'km/h';
+      updateSpeedDisplay();
+      document.getElementById('speedToggle').classList.toggle('inactive');
+    }
+
+    function centerMap() {
+      if (issMarker.getLatLng()) map.setView(issMarker.getLatLng(), 4);
+    }
+
+    function toggleTrail() {
+      trailEnabled = !trailEnabled;
+      document.getElementById('trailToggle').classList.toggle('inactive');
+      if (!trailEnabled) {
+        trailCoordinates = [];
+        trailPolyline.setLatLngs([]);
+      }
+    }
+
+    fetchISSData();
+    setInterval(fetchISSData, 2000);
+
+    // Audio fallback
+    const audio = document.getElementById('space-audio');
+    audio.volume = 0.5;
+    document.body.addEventListener('click', () => {
+      if (audio.paused) audio.play();
+    });
+
+    // Set initial button styles
+    document.getElementById('speedToggle').classList.remove('inactive');
+    document.getElementById('trailToggle').classList.remove('inactive');
+  </script>
+</body>
+</html>
